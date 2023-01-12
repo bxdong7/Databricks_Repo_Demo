@@ -1,5 +1,6 @@
 # Databricks notebook source
 import pyspark.sql as ps
+from util import get_royalty_discount
 
 # COMMAND ----------
 
@@ -9,6 +10,7 @@ def get_history_data(game: str) -> ps.DataFrame:
   MARKET_LIST = ['IT', 'GO']
 
   start_dt = '2020-01-01' if game in JC_GAMES else '2021-09-01'
+  roytalty_discount = get_royalty_discount(game)
   
   sql = f"""
   select 
@@ -39,7 +41,8 @@ def get_history_data(game: str) -> ps.DataFrame:
      end as COUNTRY_TIER,
      date_sub(CALENDAR_DT, WEEKDAY(CALENDAR_DT)) as INSTALL_DT,
      sum(EXPENSE_AMT) as UA_COST,
-     sum(USER_QTY) as INSTALL_NUM
+     sum(USER_QTY) as INSTALL_NUM,
+     sum(ltv_365_lastest_val*0.7+ad_ltv_365_lastest_val)*{roytalty_discount} as NET_LTV
   from pr_analytics_agg.fact_promotion_expense_daily
   where MVP_CAMPAIGN_TYPE = 'New Installs' and APPLICATION_FAMILY_NAME = '{game}' and MARKET_CD in {tuple(MARKET_LIST)} and CALENDAR_DT >= '{start_dt}'
   group by 1, 2, 3, 4, 5, 6, 7
@@ -57,6 +60,44 @@ display(df)
 # COMMAND ----------
 
 ### Revise Query
+
+# COMMAND ----------
+
+from util import get_royalty_discount
+
+def get_monthly_data(game: str) -> ps.DataFrame:
+  JC_GAMES = ['Bingo Pop', 'Cookie Jam', 'Cookie Jam Blast', 'Emoji Blitz', \
+                 'Genies and Gems', "Harry Potter", 'Mahjong', 'Panda Pop']
+  MARKET_LIST = ['IT', 'GO']
+
+  start_dt = '2020-01-01' if game in JC_GAMES else '2021-09-01'
+  roytalty_discount = get_royalty_discount(game)
+  
+  sql = f"""
+  select 
+     APPLICATION_FAMILY_NAME, 
+     MARKET_CD, 
+     case 
+       when USER_SOURCE_TYPE_CD in ('MM', 'MK', 'MC') then 'Paid'
+       else 'Non-Paid'
+     end as SOURCE,
+     date_format(CALENDAR_DT, 'yyyy-MM-01') as MONTH,
+     sum(EXPENSE_AMT) as UA_COST,
+     sum(USER_QTY) as INSTALL_NUM,
+     sum(ltv_365_lastest_val*0.7+ad_ltv_365_lastest_val)*{roytalty_discount} as NET_LTV
+  from pr_analytics_agg.fact_promotion_expense_daily
+  where MVP_CAMPAIGN_TYPE = 'New Installs' and APPLICATION_FAMILY_NAME = '{game}' and MARKET_CD in {tuple(MARKET_LIST)} and CALENDAR_DT >= '{start_dt}'
+  group by 1, 2, 3, 4
+  having sum(USER_QTY) > 0
+  order by 1, 2, 3, 4
+  """
+  df = spark.sql(sql)
+  return df
+
+# COMMAND ----------
+
+monthly_df = get_monthly_data('Harry Potter')
+display(monthly_df)
 
 # COMMAND ----------
 
